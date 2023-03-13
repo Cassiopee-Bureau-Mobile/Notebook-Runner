@@ -6,7 +6,7 @@ import subprocess
 
 from alive_progress import alive_bar
 
-from notebook import Notebook 
+from notebook_bis import Notebook 
 from state_machine import State, StateMachine
 
 
@@ -59,7 +59,8 @@ def get_opts_args(sys_args):
         sys.exit(2)
     
     if notebook_output_file is None:
-        default_output_file = "{}_output.ipynb".format(notebook_input_file.split(".ipynb")[0])
+        default_output_file_name = os.path.basename(notebook_input_file)
+        default_output_file = "{}_output.ipynb".format(default_output_file_name.split(".ipynb")[0])
         print("No output file specified, using default {}".format(default_output_file))
         notebook_output_file = default_output_file
             
@@ -70,6 +71,7 @@ def get_opts_args(sys_args):
 if __name__ == '__main__':
     notebook_input_file, notebook_output_file = get_opts_args(sys.argv[1:])
     notebook = parse_input_file(notebook_input_file)
+    notebook.output_file = notebook_output_file
     
     number_of_cells = notebook.count_code_cells()
     
@@ -79,14 +81,14 @@ if __name__ == '__main__':
         raise ValueError("No stdout")
     
     
-    state_machine = StateMachine(number_of_cells)
+    state_machine = StateMachine(notebook)
     current_cell = state_machine.cell_number
     
     
     with alive_bar(manual=True, stats=False, enrich_print=False) as bar:
         for line in process.stdout:
             out = line.decode("utf-8")
-            #print(out, end="")
+            print(out, end="")
             state_machine.interpret_output(out)
             state, cell_number = state_machine.get_state()
             
@@ -96,6 +98,7 @@ if __name__ == '__main__':
                 current_cell = cell_number
             
             if state == State.FINISHED:
-                break
+                #break
+                print("Finished")
         
 
