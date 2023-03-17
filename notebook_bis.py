@@ -7,6 +7,7 @@ from typing import Any, Optional, List, Dict
 
 
 class CellType(Enum):
+    RAW = "raw"
     CODE = "code"
     MARKDOWN = "markdown"
 
