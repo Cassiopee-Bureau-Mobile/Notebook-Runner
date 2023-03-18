@@ -3,6 +3,12 @@ from typing import Any, Dict
 
 from notebook import Notebook, OutputType
 
+from rich.console import Console
+from rich.syntax import Syntax
+from rich.segment import Segment
+
+console = Console()
+
 class SaveLevel(Enum):
     NO_SAVE = 0
     CELL_SAVE = 1
@@ -33,6 +39,16 @@ class Printer:
         
         for line in code.split("\n"):
             print(" " * (self.number_of_spaces - len(str(cell_number))) + "{cell_number} | {line}".format(cell_number=cell_number, line=line))
+            
+        syntax = Syntax(code, "python", theme="material")
+        prefix = " " * (self.number_of_spaces - len(str(cell_number))) + "{cell_number} |" 
+        prefix_segment = Segment(prefix.format(cell_number=cell_number))
+        
+        
+        for line in console.render_lines(syntax):
+            line.insert(0, prefix_segment)
+            console.print(*line)
+
             
     def print_output(self, output: str):
         _, cell_number = self.state_machine.get_state()

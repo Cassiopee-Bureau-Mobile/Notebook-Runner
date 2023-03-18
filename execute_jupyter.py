@@ -1,50 +1,79 @@
 import os
 import sys
 import getopt
-import json
 import subprocess
 
 from alive_progress import alive_bar
 
-from notebook_bis import Notebook 
-from state_machine import State, StateMachine
+from notebook import Notebook 
+from state_machine import SaveLevel, State, StateMachine
 
+    
+help_msg="""Usage: {name} <input_file> [OPTIONS]
 
-def parse_input_file(input_file_path) -> Notebook:
-    with open(input_file_path, 'r', encoding="utf-8") as input_file:
-        notebook = json.load(input_file)
-        notebook = Notebook.from_dict(notebook)
-        
-        return notebook
+Information:
+    Execute a jupyter notebook and save the output in a new notebook.
+    
+    If you visualize the output notebook in jupyter on your browser, the output will not be
+    synchronized with the code because thre is no refresh option in jupyter to refresh the file when its content changes.
+
+    The output file will be saved in the same directory as the input file.
+    
+Options:
+    -h, --help                   Display this help message and exit
+    -o, --output FILENAME        Specify the output filename (default: input_file.nbconvert.ipynb)            
+        --save-level LEVEL       Specify the save level during the process:
+                                    * NO_SAVE: No save during the process, only at the end
+                                    * CELL_SAVE: Save after each cell execution
+                                    * FULL_SAVE: SAVE after each output
+                                (default: CELL_SAVE)
+"""          
 
     
 def get_opts_args(sys_args):
     notebook_input_file = None
-    notebook_output_file = None
+    notebook_output_file_for_jupyter = None
+    save_level = SaveLevel.CELL_SAVE
     
-    options = "hi:o:"
-    long_options = ["help", "input=", "output="]
-    help_message = "execute_jupyter.py -i <input_file> -o <output_file>"
+    options = "ho:"
+    long_options = ["help", "output=", "save-level="]
+    help_message = help_msg.format(name=sys_args[0])
     
-    try :
-        opts, _ = getopt.getopt(sys_args, options, long_options)
-    except getopt.GetoptError:
+    try:
+        opts, args = getopt.gnu_getopt(sys_args[1:], options, long_options)
+    except Exception as e:
+        print(e)
         print(help_message)
         sys.exit(2)
     
+    ### Args part ###
+    if len(args) > 0:
+        notebook_input_file = args[0]
+    
+    ### Options part ###
     for opt, arg in opts:
         if opt in ("-h", "--help"):
             print(help_message)
             sys.exit()
-        elif opt in ("-i", "--input"):
-            notebook_input_file = arg
         elif opt in ("-o", "--output"):
-            notebook_output_file = arg
+            notebook_output_file_for_jupyter = arg
+        elif opt in ("--save-level"):
+            try: 
+                save_level = SaveLevel[arg.upper()]
+            except:
+                print("Invalid save level: {}".format(arg))
+                print(help_message)
+                sys.exit(2)
+    
+    ### Exceptions ###
             
     if notebook_input_file is None:
         print("Input file is required")
         print(help_message)
         sys.exit(2)
+        
+    default_output_file_name = os.path.basename(notebook_input_file)
+    default_output_file = "{}.nbconvert.ipynb".format(default_output_file_name.split(".ipynb")[0])
         
     if not os.path.exists(notebook_input_file):
         print("Input file does not exist")
@@ -58,37 +87,48 @@ def get_opts_args(sys_args):
         print("Input file is not a .ipynb file")
         sys.exit(2)
     
-    if notebook_output_file is None:
-        default_output_file_name = os.path.basename(notebook_input_file)
-        default_output_file = "{}_output.ipynb".format(default_output_file_name.split(".ipynb")[0])
+    if notebook_output_file_for_jupyter is None:
         print("No output file specified, using default {}".format(default_output_file))
-        notebook_output_file = default_output_file
+        notebook_output_file_for_jupyter = default_output_file
+    
+    #Get the path of the input file without the file name
+    notebook_output_file_for_save = os.path.dirname(notebook_input_file) + "/" + notebook_output_file_for_jupyter
+    
+    print("Input file: {}".format(notebook_input_file))
+    print("Output file: {}".format(notebook_output_file_for_save))
+    
+    res = {
+        "input_file": notebook_input_file,
+        "output_file_name": notebook_output_file_for_jupyter,
+        "output_file": notebook_output_file_for_save,
+        "save_level": save_level
+    }
             
-    return notebook_input_file, notebook_output_file
+    return res
 
 
 
 if __name__ == '__main__':
-    notebook_input_file, notebook_output_file = get_opts_args(sys.argv[1:])
-    notebook = parse_input_file(notebook_input_file)
-    notebook.output_file = notebook_output_file
+    options = get_opts_args(sys.argv)
     
-    number_of_cells = notebook.count_code_cells()
+    cmd = ["jupyter", "nbconvert", "--execute", "--log-level='DEBUG'", "--to", "notebook", options["input_file"] , "--output", options["output_file_name"]]
     
-    process = subprocess.Popen(["jupyter", "nbconvert", "--execute", "--log-level='DEBUG'", "--to", "notebook", notebook_input_file, "--output", notebook_output_file], stderr=subprocess.STDOUT, stdout=subprocess.PIPE)
+    process = subprocess.Popen(cmd, stderr=subprocess.STDOUT, stdout=subprocess.PIPE)
     
     if process.stdout is None:
         raise ValueError("No stdout")
     
     
-    state_machine = StateMachine(notebook)
+    notebook = Notebook(options["input_file"] , options["output_file"])
+    state_machine = StateMachine(notebook, options["save_level"] )
+    
     current_cell = state_machine.cell_number
+    number_of_cells = notebook.count_code_cells()
     
     
     with alive_bar(manual=True, stats=False, enrich_print=False) as bar:
         for line in process.stdout:
             out = line.decode("utf-8")
-            print(out, end="")
             state_machine.interpret_output(out)
             state, cell_number = state_machine.get_state()
             
@@ -98,7 +138,6 @@ if __name__ == '__main__':
                 current_cell = cell_number
             
             if state == State.FINISHED:
-                #break
-                print("Finished")
+                break
         
 
