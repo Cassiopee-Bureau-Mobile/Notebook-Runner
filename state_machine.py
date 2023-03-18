@@ -1,6 +1,13 @@
 from enum import Enum
 from typing import Any, Dict
-from notebook_bis import Data, Name, Notebook, Output, OutputType
+
+from notebook import Notebook, OutputType
+
+class SaveLevel(Enum):
+    NO_SAVE = 0
+    CELL_SAVE = 1
+    FULL_SAVE = 2
+
 
 class Printer:
     def __init__(self, _number_of_cells, _state_machine: 'StateMachine'):
@@ -73,14 +80,27 @@ class StateMachine:
     ERROR_CELL_STR = "[NbConvertApp] msg_type: error"
     END_STR = "[NbConvertApp] Destroying"
     
-    def __init__(self, notebook: Notebook):
+    switcher = {
+        OUTPUT_CELL_STR_1: OutputType.STREAM,
+        OUTPUT_CELL_STR_2: OutputType.EXECUTE_RESULT,
+        OUTPUT_CELL_STR_3: OutputType.DISPLAY_DATA
+    }
+    
+    def __init__(self, notebook: Notebook, save_level: SaveLevel):
         self.notebook = notebook
+        self.printer = Printer(notebook.count_code_cells(), self)
         self.state = State.STARTED
         self.cell_number = 0
         self.number_of_cells = notebook.count_code_cells()
         self.current_cell_has_output = False
-        self.printer = Printer(notebook.count_code_cells(), self)
-        self.next_output_type = None
+        self.current_output_type = None
+        self.save_level = save_level
+        
+    def save(self, cell_save: bool = False):
+        if self.save_level == SaveLevel.FULL_SAVE:
+            self.notebook.save()
+        elif self.save_level == SaveLevel.CELL_SAVE and cell_save:
+            self.notebook.save()
         
         
     def get_state(self):
@@ -88,7 +108,6 @@ class StateMachine:
     
     def set_executing(self):
         self.state = State.CELL_EXECUTING
-        self.cell_number += 1
         
     def set_idle(self):
         self.state = State.CELL_IDLE
@@ -113,11 +132,18 @@ class StateMachine:
             return
         
         if self.START_CELL_STR in out:
-            self.set_executing()
             self.current_cell_has_output = False
-            self.notebook.save()
+            self.cell_number += 1
+            
+            ### Notebook ###
             self.notebook.set_execution_count(self.cell_number -1, self.cell_number)
+            self.save(cell_save=True)
+            
+            ### Printer ###
             self.printer.new_cell()
+            
+            ### State Machine ###
+            self.set_executing()
             return
         
         state, _ = self.get_state()
@@ -126,8 +152,16 @@ class StateMachine:
             content = self.get_content(out)
             ename: str = content.get("ename", "Error")
             evalue: str = content.get("evalue", "Unknown error")
+            
+            ### Notebook ###
+            self.notebook.create_output_for_cell(OutputType.ERROR, content, cell_number=self.cell_number - 1)
+            self.save(cell_save=True)
+            
+            ### Printer ###
             self.printer.print_error(ename, evalue)
             self.printer.print_finished()
+            
+            ### State Machine ###
             self.set_finished()
             return
         
@@ -135,56 +169,56 @@ class StateMachine:
             content = self.get_content(out)
             code: str = content.get("code", "")
             
+            ### Printer ###
             self.printer.print_code(code)
+            
+            ### State Machine ###
             self.set_idle()
             return
         
         if state == State.CELL_IDLE:
-            if self.OUTPUT_CELL_STR_1 in out or self.OUTPUT_CELL_STR_2 in out or self.OUTPUT_CELL_STR_3 in out:
-                switcher = {
-                    self.OUTPUT_CELL_STR_1: OutputType.STREAM,
-                    self.OUTPUT_CELL_STR_2: OutputType.EXECUTE_RESULT,
-                    self.OUTPUT_CELL_STR_3: OutputType.DISPLAY_DATA
-                }
+            if self.OUTPUT_CELL_STR_1 in out \
+            or self.OUTPUT_CELL_STR_2 in out \
+            or self.OUTPUT_CELL_STR_3 in out:
                 
-                new_output_type = switcher.get(out, OutputType.STREAM)
-                if new_output_type != self.next_output_type:
+                new_output_type = self.switcher.get(out, OutputType.STREAM)
+                if new_output_type != self.current_output_type:
                     self.current_cell_has_output = False
-                    self.next_output_type = new_output_type
-                    self.notebook.save()
+                    self.current_output_type = new_output_type
                 
+                ### Notebook ###
+                self.save()
+                
+                ### State Machine ###
                 self.set_output()
                 return
         
         if state == State.CELL_OUTPUT:
             content = self.get_content(out)
             text = content.get("text")
-            execution_count = content.get("execution_count", self.cell_number)
             
             if text == None:
                 text = content.get("data", {}).get("text/plain", "")
             
-            output = None   
-            if self.next_output_type == OutputType.STREAM:
-                text = content.get("text", "")
-                name = Name.STDOUT if content.get("name", "stdout") == "stdout" else Name.STDERR
-                output = Output.create_stream_output(text, name, execution_count)
-            elif self.next_output_type == OutputType.EXECUTE_RESULT:
-                data = Data.from_dict(content.get("data", {}))
-                output = Output.create_execute_result_output(data, execution_count)
-            else:
-                data = Data.from_dict(content.get("data", {}))
-                output = Output.create_display_data_output(data, execution_count)
-                
-            self.notebook.add_output(self.cell_number -1, output)
+            ### Notebook ###
+            self.notebook.create_output_for_cell(self.current_output_type, content, cell_number=self.cell_number - 1)
             
+            ### Printer ###
             self.printer.print_output(text)
+            
+            ### State Machine ###
             self.set_idle()
             return
         
         if self.END_STR in out:
-            self.set_finished()
+            ### Notebook ###
+            self.save(cell_save=True)
+            
+            ### Printer ###
             self.printer.print_finished()
+            
+            ### State Machine ###
+            self.set_finished()
             return
         
     
