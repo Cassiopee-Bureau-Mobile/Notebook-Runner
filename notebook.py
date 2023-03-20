@@ -39,6 +39,9 @@ class Notebook:
         
         raise ValueError("Cell number is out of range")
     
+    def get_cell(self, cell_number: int) -> NotebookNode:
+        return self.notebook.cells[cell_number]
+    
     def create_output_for_cell(self, output_type: OutputType | None, content: Dict[str, Any], cell_number: int):
         if output_type is None:
             raise ValueError("Output type is None")

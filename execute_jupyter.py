@@ -139,5 +139,8 @@ if __name__ == '__main__':
             
             if state == State.FINISHED:
                 break
+        state_machine.printer.print_finished()
+        state_machine.notebook.save()
+            
         
 

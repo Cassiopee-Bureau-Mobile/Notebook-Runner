@@ -1,11 +1,12 @@
 from enum import Enum
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 from notebook import Notebook, OutputType
 
 from rich.console import Console
 from rich.syntax import Syntax
-from rich.segment import Segment
+from rich.segment import Segment, Segments
+from rich.markdown import Markdown
 
 console = Console()
 
@@ -21,40 +22,63 @@ class Printer:
         self.number_of_spaces = len(str(_number_of_cells)) + 1
         self.already_printed = False
         
+    def get_prefix(self, cell_number: int):
+        return " " * (self.number_of_spaces - len(str(cell_number))) + "{cell_number} | ".format(cell_number=cell_number)
+    
+    def print_separator(self):
+        self.print_markdown("---")
+        
+    def print_new_lines(self, number_of_lines: int = 1):
+        for _ in range(number_of_lines):
+            print()
+            
+    def print_markdown(self, text: str):
+        console.print(Markdown(text))
+            
+    def print_markdown_with_prefix(self, text: str, cell_number: int):
+        md = Markdown("```" + text + "```", code_theme="one-dark", inline_code_theme="one-dark")
+        prefix_segment = Segment(self.get_prefix(cell_number))
+
+        for line in console.render_lines(md):
+            line.insert(0, prefix_segment)
+            console.print(Segments(line))
+         
         
     def new_cell(self):
         if self.already_printed == True:
-            print("-" * (self.number_of_spaces) + "-| ----------------------------------------------------------")
+            self.print_separator()
             
         self.already_printed = True 
         _, cell_number = self.state_machine.get_state()
         
-        print("\n\n")
-        print("-" * (self.number_of_spaces) + "-| ----------------------------------------------------------")
-        print(" " * (self.number_of_spaces - len(str(cell_number))) + "{} | Executing cell {} :".format(cell_number, cell_number))
-        print(" " * (self.number_of_spaces) + " | ----------------------------------------------------------")
+        self.print_new_lines(2)
+        self.print_separator()
+        self.print_markdown("# Executing cell `{}` :".format(cell_number))
+        self.print_separator()
     
     def print_code(self, code: str):
-        _, cell_number = self.state_machine.get_state()
+        syntax = Syntax(code, "python", theme="one-dark", line_numbers=True)
+        console.print(syntax)
         
-        for line in code.split("\n"):
-            print(" " * (self.number_of_spaces - len(str(cell_number))) + "{cell_number} | {line}".format(cell_number=cell_number, line=line))
+    def print_non_executing(self, source: List[str]):
+        if self.already_printed == True:
+            self.print_separator()
             
-        syntax = Syntax(code, "python", theme="material")
-        prefix = " " * (self.number_of_spaces - len(str(cell_number))) + "{cell_number} |" 
-        prefix_segment = Segment(prefix.format(cell_number=cell_number))
+        self.already_printed = True 
         
+        self.print_new_lines(2)
+        self.print_separator()
         
-        for line in console.render_lines(syntax):
-            line.insert(0, prefix_segment)
-            console.print(*line)
+        for line in source:
+            self.print_markdown(line)
+            
 
             
     def print_output(self, output: str):
         _, cell_number = self.state_machine.get_state()
         
         if self.state_machine.current_cell_has_output == False:
-            print(" " * (self.number_of_spaces) + " | ----------------------------------------------------------")
+            self.print_separator()
             self.state_machine.current_cell_has_output = True
         
         lines = output.split("\n")
@@ -62,22 +86,22 @@ class Printer:
             lines = lines[:-1]
         
         for line in lines:
-            print(" " * (self.number_of_spaces - len(str(cell_number))) + "{cell_number} | {line}".format(cell_number=cell_number, line=line))
+            self.print_markdown_with_prefix(line, cell_number)
             
     def print_error(self, evalue: str, ename: str):
         _, cell_number = self.state_machine.get_state()
         
         if self.state_machine.current_cell_has_output == False:
-            print(" " * (self.number_of_spaces) + " | ----------------------------------------------------------")
-            print(" " * (self.number_of_spaces) + " | ERROR: ")
-            print(" " * (self.number_of_spaces) + " | ----------------------------------------------------------")
+            self.print_separator()
+            self.print_markdown("# Error:")
+            self.print_separator()
             self.state_machine.current_cell_has_output = True
-            
-        print(" " * (self.number_of_spaces - len(str(cell_number))) + "{cell_number} | {error}".format(cell_number=cell_number, error=(evalue + ": " + ename)))
+        
+        self.print_markdown_with_prefix("Error: " + evalue + ": " + ename, cell_number)
             
     def print_finished(self):
-        print("-" * (self.number_of_spaces) + "-| ----------------------------------------------------------")
-        print("\n\n")
+        self.print_separator()
+        self.print_new_lines(2)
 
 
 class State(Enum):
@@ -95,12 +119,8 @@ class StateMachine:
     OUTPUT_CELL_STR_3 = "[NbConvertApp] msg_type: display_data"
     ERROR_CELL_STR = "[NbConvertApp] msg_type: error"
     END_STR = "[NbConvertApp] Destroying"
+    SKIPPING_STR = "[NbConvertApp] Skipping non-executing cell"
     
-    switcher = {
-        OUTPUT_CELL_STR_1: OutputType.STREAM,
-        OUTPUT_CELL_STR_2: OutputType.EXECUTE_RESULT,
-        OUTPUT_CELL_STR_3: OutputType.DISPLAY_DATA
-    }
     
     def __init__(self, notebook: Notebook, save_level: SaveLevel):
         self.notebook = notebook
@@ -117,6 +137,14 @@ class StateMachine:
             self.notebook.save()
         elif self.save_level == SaveLevel.CELL_SAVE and cell_save:
             self.notebook.save()
+            
+    def switcher(self, out: str):
+        if self.OUTPUT_CELL_STR_2 in out:
+            return OutputType.EXECUTE_RESULT
+        if self.OUTPUT_CELL_STR_3 in out:
+            return OutputType.DISPLAY_DATA
+        return OutputType.STREAM
+        
         
         
     def get_state(self):
@@ -146,6 +174,19 @@ class StateMachine:
         if self.ERROR_CELL_STR in out:
             self.set_error()
             return
+        
+        if self.SKIPPING_STR in out:
+            cell_skip = int(out.split("cell ")[1].split(" ")[0])
+            
+            try:
+                source = self.notebook.get_cell(cell_skip).source
+            except:
+                return
+            
+            if isinstance(source, str):
+                source = [source]
+            
+            self.printer.print_non_executing(source)
         
         if self.START_CELL_STR in out:
             self.current_cell_has_output = False
@@ -197,7 +238,7 @@ class StateMachine:
             or self.OUTPUT_CELL_STR_2 in out \
             or self.OUTPUT_CELL_STR_3 in out:
                 
-                new_output_type = self.switcher.get(out, OutputType.STREAM)
+                new_output_type = self.switcher(out)
                 if new_output_type != self.current_output_type:
                     self.current_cell_has_output = False
                     self.current_output_type = new_output_type
@@ -226,13 +267,7 @@ class StateMachine:
             self.set_idle()
             return
         
-        if self.END_STR in out:
-            ### Notebook ###
-            self.save(cell_save=True)
-            
-            ### Printer ###
-            self.printer.print_finished()
-            
+        if self.END_STR in out:            
             ### State Machine ###
             self.set_finished()
             return
