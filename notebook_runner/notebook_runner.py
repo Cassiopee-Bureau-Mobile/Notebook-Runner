@@ -5,8 +5,10 @@ import subprocess
 
 from alive_progress import alive_bar
 
-from notebook import Notebook 
-from state_machine import SaveLevel, State, StateMachine
+from .notebook import Notebook 
+from .state_machine import SaveLevel, State, StateMachine
+
+__version__ = "0.1.0"
 
     
 help_msg="""Usage: {name} <input_file> [OPTIONS]
@@ -106,9 +108,7 @@ def get_opts_args(sys_args):
             
     return res
 
-
-
-if __name__ == '__main__':
+def notebook_runner():
     options = get_opts_args(sys.argv)
     
     cmd = ["jupyter", "nbconvert", "--execute", "--log-level='DEBUG'", "--to", "notebook", options["input_file"] , "--output", options["output_file_name"]]

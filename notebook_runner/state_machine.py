@@ -1,7 +1,7 @@
 from enum import Enum
 from typing import Any, Dict, List
 
-from notebook import Notebook, OutputType
+from .notebook import Notebook, OutputType
 
 from rich.console import Console
 from rich.syntax import Syntax
