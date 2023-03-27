@@ -1,10 +1,8 @@
 from setuptools import setup, find_packages
 
-from notebook_runner.notebook_runner import __version__ # type: ignore
-
 setup(
     name="notebook_runner",
-    version=__version__,
+    version="0.1.0",
     
     url="https://github.com/SamuelGuillemet/Cassiopee",
     author="Samuel Guillemet",
