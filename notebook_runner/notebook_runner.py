@@ -96,6 +96,9 @@ def get_opts_args(sys_args):
     #Get the path of the input file without the file name
     notebook_output_file_for_save = os.path.dirname(notebook_input_file) + "/" + notebook_output_file_for_jupyter
     
+    if notebook_output_file_for_save.startswith("/"):
+        notebook_output_file_for_save = notebook_output_file_for_save[1:]
+    
     print("Input file: {}".format(notebook_input_file))
     print("Output file: {}".format(notebook_output_file_for_save))
     

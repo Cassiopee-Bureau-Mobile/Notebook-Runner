@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="notebook_runner",
-    version="0.1.0",
+    version="0.1.1",
     
     url="https://github.com/SamuelGuillemet/Cassiopee",
     author="Samuel Guillemet",
