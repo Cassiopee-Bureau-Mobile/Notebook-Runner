@@ -1,1 +1,0 @@
-verif si même structure et si c'est le cas faire un append sur les listes
